@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Family Tree Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;500;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f7f9fc; }
+        .card { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1); }
+
+        /* Custom styles for the tree visualization */
+        .tree-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            margin-bottom: 40px; 
+            min-width: 200px;
+        }
+        
+        .node-and-spouse {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start; 
+            margin: 10px 0;
+            position: relative;
+        }
+
+        .tree-node, .spouse-node, .spouse-parent-node {
+            display: inline-block;
+            padding: 10px 15px;
+            border-radius: 12px;
+            text-align: center;
+            position: relative;
+            background-color: #fff;
+            min-width: 150px;
+            transition: all 0.3s ease;
+            margin: 0 5px; 
+            z-index: 30;
+            font-size: 0.875rem; 
+        }
+        
+        .tree-node {
+            border: 2px solid #10b981;
+        }
+        .spouse-node {
+            border: 2px dashed #ec4899; 
+            background-color: #fce7f3; 
+        }
+        .spouse-parent-node {
+            border: 2px solid #a855f7; 
+            background-color: #f3e8ff; 
+            position: absolute;
+            top: -100px; 
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 40; 
+        }
+
+        .tree-node:hover, .spouse-node:hover, .spouse-parent-node:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Line connecting the parent node to the children group (Increased spacing) */
+        .node-children {
+            display: flex;
+            justify-content: center;
+            padding-top: 60px; 
+            position: relative;
+        }
+
+        /* Line connecting parent's main node to children group */
+        .node-children::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 2px;
+            height: 60px; 
+            background-color: #10b981;
+        }
+
+        /* Horizontal line connecting siblings */
+        .node-children > .tree-container:not(:only-child)::before {
+            content: '';
+            position: absolute;
+            top: 60px; 
+            height: 2px;
+            background-color: #10b981;
+        }
+        /* Connection logic for sibling lines */
+        .node-children > .tree-container:first-child:not(:only-child)::before {
+            left: 0;
+            width: calc(50% + 15px);
+        }
+        .node-children > .tree-container:last-child:not(:only-child)::before {
+            right: 0;
+            left: unset;
+            width: calc(50% + 15px);
+        }
+        .node-children > .tree-container:not(:first-child):not(:last-child)::before {
+            width: 100%;
+            left: 0;
+        }
+        
+        /* Individual vertical line up to the horizontal sibling line */
+        .node-and-spouse::after {
+            content: '';
+            position: absolute;
+            top: -50px; 
+            left: 50%;
+            transform: translateX(-50%);
+            width: 2px;
+            height: 50px; 
+            background-color: #10b981;
+        }
+        /* No line needed for the actual root node */
+        #tree-root > .tree-container > .node-and-spouse::after {
+            content: none;
+        }
+        
+        /* Multiple root wrapper: ensure trees are rendered side-by-side */
+        #tree-root {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            padding: 20px;
+        }
+
+
+        /* Connecting line between spouse nodes */
+        .node-and-spouse::before {
+            content: '';
+            position: absolute;
+            height: 2px;
+            width: 20px; 
+            background-color: #ec4899; 
+            top: 50%;
+            transform: translateY(-50%);
+            left: calc(50% - 10px); 
+            z-index: 10;
+        }
+        /* Hide the horizontal spouse line if there's no spouse */
+        .node-and-spouse.no-spouse::before {
+            content: none;
+        }
+
+        /* Vertical line connecting spouse's parent to the spouse node */
+        .spouse-node-wrapper {
+            position: relative;
+        }
+        .spouse-parent-link {
+            content: '';
+            position: absolute;
+            top: -50px; 
+            left: 50%;
+            transform: translateX(-50%);
+            width: 2px;
+            height: 40px; 
+            background-color: #a855f7; 
+            z-index: 10;
+        }
+        
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div class="max-w-6xl mx-auto">
+        <header class="text-center mb-10">
+            <h1 class="text-4xl font-bold text-gray-800 mb-2">Family Tree Dashboard</h1>
+            <p class="text-lg text-gray-500">
+                Google Sheet के माध्यम से सुरक्षित रूप से संग्रहीत संबंधों का विज़ुअलाइज़ेशन।
+            </p>
+            <div id="security-alert" class="mt-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg text-sm">
+                ⚠️ **सुरक्षा चेतावनी:** PAN/UIDAI जैसे संवेदनशील डेटा को सार्वजनिक रूप से साझा की जाने वाली Google Sheet में संग्रहीत न करें।
+            </div>
+        </header>
+
+        <!-- Data Display & Tree Visualization -->
+        <div id="data-container" class="mb-10 p-6 bg-white rounded-xl card transition-all duration-300">
+            <h2 class="text-2xl font-semibold text-gray-700 mb-4 border-b pb-2">पारिवारिक पदानुक्रम (Family Hierarchy)</h2>
+            <p class="text-sm text-gray-500 mb-4">वर्तमान में प्रदर्शित जड़ों की संख्या: <span id="root-count" class="font-bold text-blue-600">...</span></p>
+
+            
+            <!-- Zoom Control -->
+            <div class="mb-4 flex flex-col sm:flex-row items-center justify-between p-2 border border-gray-200 rounded-lg bg-gray-50">
+                <label for="tree-zoom" class="text-sm font-medium text-gray-700 mr-4 whitespace-nowrap">ट्री ज़ूम/स्केल (Tree Zoom/Scale):</label>
+                <input type="range" id="tree-zoom" min="0.5" max="1.0" step="0.05" value="1.0" class="w-full sm:w-2/3 cursor-pointer">
+                <span id="zoom-value" class="text-sm font-bold text-blue-600 ml-4 whitespace-nowrap">100%</span>
+            </div>
+
+            <!-- Tree visualization container. Note: overflow-x-auto ensures horizontal scrolling if the tree is wide -->
+            <div class="overflow-x-auto p-4">
+                <div id="tree-root">
+                    <!-- Multiple tree visualizations will be injected here -->
+                </div>
+            </div>
+
+            <div id="loading-indicator" class="text-center py-8 text-blue-500 hidden">
+                <svg class="animate-spin h-5 w-5 mx-auto mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Flask बैकएंड से कनेक्ट हो रहा है और ट्री बना रहा है... (Connecting to Flask backend and building tree...)
+            </div>
+            <div id="error-message" class="text-center py-8 text-red-500 hidden">
+                <p class="text-xl font-semibold mb-2">डेटा लोड करने में त्रुटि (Data Load Error)</p>
+                Flask API से कनेक्ट नहीं हो सका। कृपया सुनिश्चित करें कि सर्वर चल रहा है और Google Sheet से जुड़ा है।
+                <p id="error-details" class="text-sm italic mt-2"></p>
+            </div>
+            <div id="error-message-data" class="text-center py-8 text-yellow-600 hidden">
+                कोई पदानुक्रमित डेटा नहीं मिला। (No hierarchical data found.)
+            </div>
+        </div>
+        
+        <!-- RESUME GENERATION SECTION -->
+        <div class="p-6 bg-white rounded-xl card mt-8">
+            <h2 class="text-2xl font-semibold text-gray-700 mb-4 border-b pb-2">रिज्यूम ड्राफ्ट जेनरेटर (Resume Draft Generator)</h2>
+            <p class="text-sm text-gray-500 mb-4">परिवार के सदस्य का नाम दर्ज करें जिसके लिए आप रिज्यूम बनाना चाहते हैं।</p>
+            <div class="space-y-4">
+                <input type="text" id="resume-name-input" placeholder="सदस्य का नाम" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500 transition duration-150">
+                <button id="generate-resume-button" class="w-full py-2 px-4 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 transition duration-200 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2">
+                    रिज्यूम ड्राफ्ट जेनरेट करें
+                </button>
+            </div>
+            <div id="resume-output" class="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg hidden">
+                <h3 class="font-bold text-lg text-gray-800 mb-2">रिज्यूम ड्राफ्ट (Generated Resume Draft)</h3>
+                <pre id="resume-content" class="whitespace-pre-wrap font-mono text-sm text-gray-700"></pre>
+            </div>
+             <div id="resume-error" class="text-center mt-2 text-sm font-medium text-red-600 hidden"></div>
+        </div>
+        <!-- END RESUME GENERATION SECTION -->
+
+        <!-- Add New Member Form -->
+        <div class="p-6 bg-white rounded-xl card mt-8">
+            <h2 class="text-2xl font-semibold text-gray-700 mb-4 border-b pb-2">नया सदस्य जोड़ें (Add New Member)</h2>
+            <form id="add-member-form" class="space-y-4">
+                <p class="text-sm text-gray-500">सभी फ़ील्ड Google Sheet में सहेजे जाएंगे।</p>
+                <!-- Essential Fields -->
+                <div><label for="name" class="block text-sm font-medium text-gray-700 mb-1">पूरा नाम</label><input type="text" id="name" name="Name" required class="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"></div>
+                <div><label for="relationship" class="block text-sm font-medium text-gray-700 mb-1">आपसे संबंध</label><input type="text" id="relationship" name="Relationship" required class="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"></div>
+                <div><label for="fathername" class="block text-sm font-medium text-gray-700 mb-1">पिता का पूरा नाम</label><input type="text" id="fathername" name="FatherName" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"></div>
+                 <div><label for="spouse" class="block text-sm font-medium text-gray-700 mb-1">जीवनसाथी/पार्टनर का पूरा नाम</label><input type="text" id="spouse" name="Spouse" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-pink-500 focus:border-pink-500"></div>
+                <div><label for="birthdate" class="block text-sm font-medium text-gray-700 mb-1">जन्म तिथि (YYYY-MM-DD)</label><input type="date" id="birthdate" name="Birthdate" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"></div>
+                
+                <!-- New Resume Fields -->
+                <div class="pt-4 border-t border-gray-200">
+                    <h3 class="text-lg font-semibold text-gray-700 mb-2">रिज्यूम/जॉब विवरण (Resume/Job Details)</h3>
+                    <p class="text-xs text-red-500 italic">ये फ़ील्ड संवेदनशील हैं और शीट में सहेजे जाएंगे।</p>
+                </div>
+                 <div><label for="educationaldetails" class="block text-sm font-medium text-gray-700 mb-1">शैक्षणिक विवरण (Highest Qualification)</label><input type="text" id="educationaldetails" name="EducationalDetails" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"></div>
+                 <div><label for="uidai" class="block text-sm font-medium text-gray-700 mb-1">UIDAI/आधार नंबर</label><input type="text" id="uidai" name="UIDAI_No" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500"></div>
+                 <div><label for="pan" class="block text-sm font-medium text-gray-700 mb-1">PAN नंबर</label><input type="text" id="pan" name="PAN_No" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500"></div>
+                 <div><label for="castcert" class="block text-sm font-medium text-gray-700 mb-1">जाति प्रमाण पत्र संख्या</label><input type="text" id="castcert" name="Cast_Certificate_No" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"></div>
+                 <div><label for="residencecert" class="block text-sm font-medium text-gray-700 mb-1">निवास प्रमाण पत्र संख्या</label><input type="text" id="residencecert" name="Residential_Certificate_No" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"></div>
+
+                <button type="submit" id="submit-button" class="w-full py-2 px-4 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                    सदस्य जोड़ें (Add Member)
+                </button>
+                <p id="form-status" class="text-center mt-2 text-sm font-medium hidden"></p>
+            </form>
+        </div>
+
+        <!-- DEBUG DATA SECTION -->
+        <div class="mt-8">
+            <button id="toggle-debug" class="w-full py-2 px-4 bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300 transition duration-200 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2">
+                डेटा प्रोसेसिंग डिबग जानकारी दिखाएं/छुपाएं (Show/Hide Data Processing Debug Info)
+            </button>
+            <div id="debug-info" class="p-6 bg-gray-800 text-green-400 rounded-xl card mt-4 hidden overflow-x-auto text-sm">
+                <h3 class="text-lg font-bold text-white mb-3">Hierarchy Map (Parent: [Children])</h3>
+                <pre id="hierarchy-output" class="whitespace-pre-wrap font-mono"></pre>
+                
+                <h3 class="text-lg font-bold text-white mb-3 mt-6">Member Map (Name: Details)</h3>
+                <pre id="member-output" class="whitespace-pre-wrap font-mono"></pre>
+            </div>
+        </div>
+        <!-- END DEBUG DATA SECTION -->
+    </div>
+
+    <script>
+        // Ensure the API URL matches the Flask server running on port 5000
+        const API_BASE_URL = '/api/members'; // Flask के माध्यम से लोड होने पर यह सही रहेगा
+        
+        const treeRootContainer = document.getElementById('tree-root');
+        const form = document.getElementById('add-member-form');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const errorMessage = document.getElementById('error-message');
+        const errorDetails = document.getElementById('error-details');
+        const dataErrorMessage = document.getElementById('error-message-data');
+        const submitButton = document.getElementById('submit-button');
+        const formStatus = document.getElementById('form-status');
+        const rootCountDisplay = document.getElementById('root-count');
+        
+        const toggleDebugButton = document.getElementById('toggle-debug');
+        const debugInfo = document.getElementById('debug-info');
+        const hierarchyOutput = document.getElementById('hierarchy-output');
+        const memberOutput = document.getElementById('member-output');
+
+        const zoomSlider = document.getElementById('tree-zoom');
+        const zoomValueDisplay = document.getElementById('zoom-value');
+        
+        const resumeInput = document.getElementById('resume-name-input');
+        const resumeButton = document.getElementById('generate-resume-button');
+        const resumeOutput = document.getElementById('resume-output');
+        const resumeContent = document.getElementById('resume-content');
+        const resumeError = document.getElementById('resume-error');
+
+
+        // Global variable to hold the processed member map (needed for In-Law lookup in renderNode and Resume)
+        let memberMap = {};
+        
+        // --- ZOOM CONTROL LOGIC ---
+        zoomSlider.addEventListener('input', (e) => {
+            const scale = e.target.value;
+            treeRootContainer.style.transform = `scale(${scale})`;
+            treeRootContainer.style.transformOrigin = 'top center';
+            const percent = Math.round(scale * 100);
+            zoomValueDisplay.textContent = `${percent}%`;
+        });
+        // --- END ZOOM CONTROL LOGIC ---
+
+        // Debug Toggle Listener
+        toggleDebugButton.addEventListener('click', () => {
+            debugInfo.classList.toggle('hidden');
+        });
+
+
+        /**
+         * Finds all roots and builds multiple tree structures.
+         */
+        function buildTreeData(flatMembers) {
+            memberMap = {}; 
+            const hierarchyMap = {}; 
+            
+            // 1. Build maps from all members
+            flatMembers.forEach(member => {
+                // Standardize and trim names, including new fields
+                member.Name = member.Name ? member.Name.trim() : '';
+                member.FatherName = member.FatherName ? member.FatherName.trim() : '';
+                member.Spouse = member.Spouse ? member.Spouse.trim() : '';
+                member.EducationalDetails = member.EducationalDetails ? member.EducationalDetails.trim() : '';
+                // New sensitive fields are also retrieved here by the GET request
+                
+                // Use lowercase name for linking
+                const nameLower = member.Name.toLowerCase();
+                const fatherNameLower = member.FatherName.toLowerCase();
+
+                if (nameLower) {
+                    memberMap[nameLower] = { 
+                        ...member, 
+                        nameLower, 
+                        children: [], 
+                        spouseData: null, 
+                        isSecondaryNode: false 
+                    };
+                }
+
+                // Build vertical hierarchy (parent-child)
+                if (fatherNameLower && memberMap[nameLower]) {
+                    if (!hierarchyMap[fatherNameLower]) {
+                        hierarchyMap[fatherNameLower] = [];
+                    }
+                    if (!hierarchyMap[fatherNameLower].includes(nameLower)) {
+                        hierarchyMap[fatherNameLower].push(nameLower);
+                    }
+                }
+            });
+            
+            const membersToExclude = new Set();
+            const processedPairs = new Set();
+            
+            // 2. Attach Spouses (Horizontal Link) and determine exclusion
+            Object.keys(memberMap).forEach(mainNameLower => {
+                const mainNode = memberMap[mainNameLower];
+                const spouseName = mainNode.Spouse;
+
+                if (spouseName) {
+                    const spouseNameLower = spouseName.toLowerCase();
+                    const spouseNode = memberMap[spouseNameLower];
+
+                    if (spouseNode) {
+                        const key = [mainNameLower, spouseNameLower].sort().join('_');
+
+                        if (!processedPairs.has(key)) {
+                            processedPairs.add(key);
+
+                            const mainHasChildren = hierarchyMap[mainNameLower] && hierarchyMap[mainNameLower].length > 0;
+                            const spouseHasChildren = hierarchyMap[spouseNameLower] && hierarchyMap[spouseNameLower].length > 0;
+
+                            mainNode.spouseData = spouseNode;
+                            
+                            // Exclusion Logic: A node must be primary if they have children.
+                            if (mainHasChildren && !spouseHasChildren) {
+                                membersToExclude.add(spouseNameLower);
+                            } else if (spouseHasChildren && !mainHasChildren) {
+                                membersToExclude.add(mainNameLower);
+                            } 
+                        }
+                    }
+                }
+            });
+            
+            // Apply final exclusion flag
+            membersToExclude.forEach(name => {
+                if (memberMap[name]) {
+                    memberMap[name].isSecondaryNode = true;
+                }
+            });
+
+
+            // 3. Determine all true roots
+            const allChildrenNames = new Set(Object.values(hierarchyMap).flat());
+            
+            const potentialRoots = Object.keys(memberMap).filter(k => 
+                k !== '' && !memberMap[k].isSecondaryNode && !allChildrenNames.has(k)
+            );
+
+            // 4. Recursive function to build the tree structure for a given root
+            function createNode(name) {
+                const member = memberMap[name];
+                
+                if (!member || member.isSecondaryNode) return null;
+
+                const node = { ...member };
+                const childNames = hierarchyMap[name] || [];
+
+                // Sort children
+                childNames.sort((a, b) => {
+                    const memberA = memberMap[a];
+                    const memberB = memberMap[b];
+                    
+                    let comparison = memberA.Name.localeCompare(memberB.Name);
+                    if (comparison !== 0) return comparison;
+
+                    const dateA = memberA.Birthdate || '0000-01-01';
+                    const dateB = memberB.Birthdate || '0000-01-01';
+                    return dateA.localeCompare(dateB); 
+                });
+
+                // Recursively call for children
+                node.children = childNames
+                    .map(childName => createNode(childName))
+                    .filter(child => child !== null);
+                
+                return node;
+            }
+            
+            const trees = potentialRoots
+                .map(rootName => createNode(rootName))
+                .filter(tree => tree !== null);
+            
+            return { trees, hierarchyMap, memberMap };
+        }
+
+        /**
+         * Recursively renders a single node and its children into HTML for the dashboard.
+         */
+        function renderNode(node, isRoot = false) {
+            if (!node) return '';
+
+            // --- 0. Look up In-Law Data for Spouse (if present) ---
+            let spouseParentHtml = '';
+            if (node.spouseData && node.spouseData.FatherName) {
+                const spouseFatherNameLower = node.spouseData.FatherName.toLowerCase();
+                const parent = memberMap[spouseFatherNameLower];
+                
+                if (parent) { 
+                    spouseParentHtml = `
+                        <div class="spouse-parent-node">
+                            <div class="font-bold text-gray-900">${parent.Name}</div>
+                            <div class="text-xs text-purple-600 mb-1">${parent.Relationship || 'Parent-in-Law'}</div>
+                        </div>
+                        <div class="spouse-parent-link"></div>
+                    `;
+                }
+            }
+
+
+            // Assign a color based on relationship for visual cue
+            let nodeClass = 'bg-white border-blue-500';
+            const rel = node.Relationship ? node.Relationship.toLowerCase() : '';
+
+            if (rel === 'self') {
+                 nodeClass = 'bg-yellow-100 border-yellow-600';
+            } else if (rel.includes('grand father') || rel.includes('father')) {
+                 nodeClass = 'bg-green-100 border-green-600';
+            }
+
+            // Resume Data Display
+            let resumeDetails = '';
+            if (node.EducationalDetails) {
+                 resumeDetails = `<div class="text-xs text-indigo-600 mt-1 font-medium italic">Edu: ${node.EducationalDetails}</div>`;
+            }
+
+            // --- 1. RENDER THE MAIN NODE (Self, Father, Brother) ---
+            const mainNodeHtml = `
+                <div class="tree-node ${isRoot ? 'border-4' : 'border-2'} ${nodeClass}">
+                    <div class="font-bold text-gray-900">${node.Name}</div>
+                    <div class="text-xs text-blue-600 mb-1">${node.Relationship}</div>
+                    <div class="text-xs text-gray-500">${node.Birthdate || 'N/A'}</div>
+                    ${resumeDetails}
+                </div>
+            `;
+            
+            // --- 2. RENDER THE SPOUSE NODE (if linked) ---
+            let spouseNodeHtml = '';
+            let spouseClass = 'no-spouse';
+
+            if (node.spouseData) {
+                const spouse = node.spouseData;
+                spouseClass = ''; 
+                
+                let spouseRelClass = 'text-pink-600';
+                
+                let spouseResumeDetails = '';
+                if (spouse.EducationalDetails) {
+                     spouseResumeDetails = `<div class="text-xs text-indigo-600 mt-1 font-medium italic">Edu: ${spouse.EducationalDetails}</div>`;
+                }
+
+
+                const spouseNodeContent = `
+                    <div class="spouse-node-wrapper relative">
+                        ${spouseParentHtml}
+                        <div class="spouse-node">
+                            <div class="font-bold text-gray-900">${spouse.Name}</div>
+                            <div class="text-xs ${spouseRelClass} mb-1">${spouse.Relationship || 'Spouse'}</div>
+                            <div class="text-xs text-gray-500">${spouse.Birthdate || 'N/A'}</div>
+                            ${spouseResumeDetails}
+                        </div>
+                    </div>
+                `;
+                
+                spouseNodeHtml = spouseNodeContent;
+            }
+
+            // --- 3. COMBINE MAIN NODE AND SPOUSE HORIZONTALLY ---
+            let combinedNodeHtml = `
+                <div class="node-and-spouse ${spouseClass}">
+                    ${mainNodeHtml}
+                    ${spouseNodeHtml}
+                </div>
+            `;
+            
+            let childrenHtml = '';
+            // If node has children, create the container and recurse
+            if (node.children.length > 0) {
+                childrenHtml = `
+                    <div class="node-children">
+                        ${node.children.map(child => renderNode(child)).join('')}
+                    </div>
+                `;
+            }
+
+            // --- 4. RETURN THE FULL TREE STRUCTURE FOR THIS BRANCH ---
+            return `
+                <div class="tree-container">
+                    ${combinedNodeHtml}
+                    ${childrenHtml}
+                </div>
+            `;
+        }
+
+        /**
+         * Fetches data and renders the tree dashboard.
+         */
+        async function loadFamilyMembers() {
+            loadingIndicator.classList.remove('hidden');
+            errorMessage.classList.add('hidden');
+            errorDetails.textContent = '';
+            dataErrorMessage.classList.add('hidden');
+            treeRootContainer.innerHTML = '';
+            rootCountDisplay.textContent = 'Loading...';
+            hierarchyOutput.textContent = 'Loading...';
+            memberOutput.textContent = 'Loading...';
+
+
+            try {
+                const response = await fetch(API_BASE_URL); 
+                
+                if (!response.ok) {
+                    const errorJson = await response.json();
+                    // Handle API initialization failure message from Flask
+                    if (errorJson.message.includes("API initialization failed")) {
+                         throw new Error(`Connection Error: ${errorJson.message}`);
+                    }
+                    throw new Error(errorJson.message || `HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data && Array.isArray(data.data) && data.data.length > 0) {
+                    const { trees, hierarchyMap, memberMap: processedMemberMap } = buildTreeData(data.data);
+
+                    // Update global member map for resume generation
+                    memberMap = processedMemberMap;
+
+                    // Update debug info
+                    hierarchyOutput.textContent = JSON.stringify(hierarchyMap, null, 2);
+                    
+                    // Filter memberMap for relevant fields for cleaner debug output
+                    const simplifiedMemberMap = Object.keys(processedMemberMap).reduce((acc, key) => {
+                        const { Name, FatherName, Spouse, isSecondaryNode, EducationalDetails, Relationship, UIDAI_No, PAN_No, Cast_Certificate_No, Residential_Certificate_No } = processedMemberMap[key];
+                        acc[key] = { Name, FatherName, Spouse, isSecondaryNode, EducationalDetails, Relationship, UIDAI_No: UIDAI_No.substring(0, 4) + '...', PAN_No: PAN_No.substring(0, 4) + '...', Cast_Certificate_No, Residential_Certificate_No };
+                        return acc;
+                    }, {});
+
+                    memberOutput.textContent = JSON.stringify(simplifiedMemberMap, null, 2);
+                    rootCountDisplay.textContent = trees.length;
+
+
+                    if (trees.length > 0) {
+                        const htmlContent = trees.map(tree => renderNode(tree, true)).join('');
+                        treeRootContainer.innerHTML = htmlContent;
+                    } else {
+                         dataErrorMessage.textContent = 'कोई कनेक्टेड या स्वतंत्र रूट नोड स्थापित नहीं कर सका। (Could not establish any connected or independent root nodes.)';
+                         dataErrorMessage.classList.remove('hidden');
+                    }
+
+                } else {
+                    dataErrorMessage.textContent = 'परिवार का कोई डेटा नहीं मिला। (No family data found.)';
+                    dataErrorMessage.classList.remove('hidden');
+                    rootCountDisplay.textContent = '0';
+                    hierarchyOutput.textContent = '{}';
+                    memberOutput.textContent = '{}';
+                }
+
+            } catch (error) {
+                console.error('Error loading family members:', error);
+                errorMessage.textContent = `डेटा लोड करने में त्रुटि। क्या Flask सर्वर चल रहा है?`;
+                errorDetails.textContent = `विवरण: ${error.message}`;
+                errorMessage.classList.remove('hidden');
+                rootCountDisplay.textContent = 'कनेक्शन विफल (Failed)';
+                hierarchyOutput.textContent = 'Failed to fetch/process data.';
+                memberOutput.textContent = 'Failed to fetch/process data.';
+            } finally {
+                loadingIndicator.classList.add('hidden');
+            }
+        }
+
+        // --- RESUME GENERATION LOGIC ---
+        resumeButton.addEventListener('click', () => {
+            resumeOutput.classList.add('hidden');
+            resumeError.classList.add('hidden');
+            resumeContent.textContent = '';
+            
+            const name = resumeInput.value.trim();
+            if (!name) {
+                resumeError.textContent = 'कृपया रिज्यूम बनाने के लिए एक नाम दर्ज करें।';
+                resumeError.classList.remove('hidden');
+                return;
+            }
+            
+            const memberKey = name.toLowerCase();
+            const member = memberMap[memberKey];
+
+            if (!member) {
+                resumeError.textContent = `सदस्य '${name}' डेटा में नहीं मिला। (Member not found in data.) सुनिश्चित करें कि नाम पूरी तरह से मेल खाता है।`;
+                resumeError.classList.remove('hidden');
+                return;
+            }
+
+            // Create a structured resume draft using collected data, including the new sensitive fields
+            const resumeDraft = `
+========================================
+RESUME DRAFT (बायोडाटा)
+========================================
+
+PERSONAL DETAILS
+Name: ${member.Name}
+Date of Birth: ${member.Birthdate || 'N/A'}
+Relationship (Family context): ${member.Relationship || 'N/A'}
+Father's Name: ${member.FatherName || 'N/A'}
+Spouse's Name: ${member.Spouse || 'N/A'}
+
+EDUCATIONAL DETAILS
+Highest Qualification: ${member.EducationalDetails || 'Not specified'}
+
+========================================
+SENSITIVE IDENTIFICATION DETAILS
+(DO NOT share this entire draft publicly or use this section in a job application)
+========================================
+UIDAI / Aadhaar No: ${member.UIDAI_No || 'N/A'}
+PAN No: ${member.PAN_No || 'N/A'}
+Cast Certificate No: ${member.Cast_Certificate_No || 'N/A'}
+Residential Certificate No: ${member.Residential_Certificate_No || 'N/A'}
+========================================
+
+PROFESSIONAL SUMMARY (DRAFT)
+[Write a 2-3 sentence summary here based on Educational Details, e.g., "A motivated individual with a background in ${member.EducationalDetails || '[Your Field Here]'}. Seeking an entry-level position where I can contribute to team goals and grow professionally."]
+
+SKILLS (DRAFT)
+[Add relevant skills here, e.g., Communication, Teamwork, Basic Computer Skills, Language Proficiency (Hindi, English)]
+
+[NOTE: This is a basic draft based on the collected family data. You must manually add professional experience, detailed skills, and contact details for a proper job application.]
+`;
+            resumeContent.textContent = resumeDraft;
+            resumeOutput.classList.remove('hidden');
+        });
+        // --- END RESUME GENERATION LOGIC ---
+
+
+        // Handles the form submission (POST request).
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            submitButton.disabled = true;
+            submitButton.textContent = 'जोड़ रहा है... (Adding...)';
+            formStatus.classList.remove('hidden', 'text-green-600', 'text-red-600');
+            formStatus.classList.add('text-gray-500');
+            formStatus.textContent = 'Flask को डेटा भेज रहा है... (Sending data to Flask...)';
+            
+            const formData = new FormData(form);
+            const payload = {};
+            for (let [key, value] of formData.entries()) {
+                // Ensure all fields are trimmed, even the new ones
+                payload[key] = value.trim(); 
+            }
+            
+            // Ensure fields are not null/undefined
+            payload.Birthdate = payload.Birthdate || '';
+            payload.EducationalDetails = payload.EducationalDetails || '';
+            payload.UIDAI_No = payload.UIDAI_No || '';
+            payload.PAN_No = payload.PAN_No || '';
+            payload.Cast_Certificate_No = payload.Cast_Certificate_No || '';
+            payload.Residential_Certificate_No = payload.Residential_Certificate_No || '';
+
+
+            try {
+                const response = await fetch(API_BASE_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const errorJson = await response.json();
+                    throw new Error(errorJson.message || `HTTP status ${response.status}`);
+                }
+
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    formStatus.classList.replace('text-gray-500', 'text-green-600');
+                    formStatus.textContent = 'सदस्य सफलतापूर्वक जोड़ा गया! ट्री रीफ़्रेश हो रहा है... (Successfully added member! Refreshing tree...)';
+                    form.reset(); 
+                    // Give a small delay for the Google Sheet update to propagate before refreshing
+                    setTimeout(loadFamilyMembers, 1000); 
+                } else {
+                    throw new Error(result.message || 'सर्वर से अज्ञात त्रुटि। (Unknown error from server.)');
+                }
+
+            } catch (error) {
+                console.error('Error adding family member:', error);
+                formStatus.classList.replace('text-gray-500', 'text-red-600');
+                formStatus.textContent = `सदस्य जोड़ने में विफल: ${error.message} (Failed to add member: ${error.message})`;
+            } finally {
+                submitButton.disabled = false;
+                submitButton.textContent = 'सदस्य जोड़ें (Add Member)';
+            }
+        });
+
+        // Load data on page load
+        window.onload = loadFamilyMembers;
+    </script>
+</body>
+</html>
+
