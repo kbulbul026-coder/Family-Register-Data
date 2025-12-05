@@ -21,7 +21,7 @@ venv.bak/
 secrets.json
 config2.json
 credentials.json
-
+config.json
 # IDE
 .vscode/
 .idea/
